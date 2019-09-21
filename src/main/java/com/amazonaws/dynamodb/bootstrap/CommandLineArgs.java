@@ -5,6 +5,9 @@
  */
 package com.amazonaws.dynamodb.bootstrap;
 
+import com.amazonaws.auth.AWSCredentialsProvider;
+import com.amazonaws.auth.AWSCredentialsProviderChain;
+import com.amazonaws.auth.BasicAWSCredentials;
 import com.amazonaws.dynamodb.bootstrap.constants.BootstrapConstants;
 import com.beust.jcommander.Parameter;
 
@@ -99,5 +102,23 @@ public class CommandLineArgs {
 
     public boolean getConsistentScan() {
         return consistentScan;
+    }
+
+    public static final String SOURCE_CREDENTIALS = "--sourceCredentials";
+    @Parameter(names = SOURCE_CREDENTIALS, description = "Use this flag to provide different source credentials")
+    private String sourceCredentials = "AKIA46T4EVTL4TIS22UG/juOFeNXwT3Qcx7aQpOgeiU+mZWDzjgbGRR+rk72j";
+
+    public BasicAWSCredentials getSourceCredentials() {
+        String[] temp  = sourceCredentials.split("/");
+        return new BasicAWSCredentials(temp[0],temp[1]);
+    }
+
+    public static final String DESTINATION_CREDENTIALS = "--destinationCredentials";
+    @Parameter(names = DESTINATION_CREDENTIALS, description = "Use this flag to provide different destination credentials")
+    private String destinationCredentials = "AKIASJVC7LXJUSWZPS5X/58AoUzEM2NEeOZZ6xLnGQWyo8DEyqzcinFMq+jzh";
+
+    public BasicAWSCredentials getDestinationCredentials() {
+        String[] temp  = destinationCredentials.split("/");
+        return new BasicAWSCredentials(temp[0],temp[1]);
     }
 }

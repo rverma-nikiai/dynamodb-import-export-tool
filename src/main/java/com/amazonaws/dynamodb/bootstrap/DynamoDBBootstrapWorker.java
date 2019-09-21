@@ -5,25 +5,27 @@
  */
 package com.amazonaws.dynamodb.bootstrap;
 
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-
 import com.amazonaws.dynamodb.bootstrap.constants.BootstrapConstants;
 import com.amazonaws.dynamodb.bootstrap.exception.NullReadCapacityException;
 import com.amazonaws.dynamodb.bootstrap.exception.SectionOutOfRangeException;
+import com.amazonaws.services.dynamodbv2.AmazonDynamoDB;
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDBClient;
+import com.amazonaws.services.dynamodbv2.model.BillingMode;
 import com.amazonaws.services.dynamodbv2.model.ProvisionedThroughputDescription;
 import com.amazonaws.services.dynamodbv2.model.ReturnConsumedCapacity;
 import com.amazonaws.services.dynamodbv2.model.ScanRequest;
 import com.amazonaws.services.dynamodbv2.model.TableDescription;
+
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * The base class to start a parallel scan and connect the results with a
  * consumer to accept the results.
  */
 public class DynamoDBBootstrapWorker extends AbstractLogProvider {
-    private final AmazonDynamoDBClient client;
+    private final AmazonDynamoDB client;
     private final double rateLimit;
     private final String tableName;
     private final int numSegments;
@@ -34,13 +36,13 @@ public class DynamoDBBootstrapWorker extends AbstractLogProvider {
     /**
      * Creates the DynamoDBBootstrapWorker, calculates the number of segments a
      * table should have, and creates a thread pool to prepare to scan.
-     * 
+     *
      * @throws Exception
      */
-    public DynamoDBBootstrapWorker(AmazonDynamoDBClient client,
-            double rateLimit, String tableName, ExecutorService exec,
-            int section, int totalSections, int numSegments,
-            boolean consistentScan) throws SectionOutOfRangeException {
+    public DynamoDBBootstrapWorker(AmazonDynamoDB client,
+                                   double rateLimit, String tableName, ExecutorService exec,
+                                   int section, int totalSections, int numSegments,
+                                   boolean consistentScan) throws SectionOutOfRangeException {
         if (section > totalSections - 1 || section < 0) {
             throw new SectionOutOfRangeException(
                     "Section of scan must be within [0...totalSections-1]");
@@ -62,11 +64,11 @@ public class DynamoDBBootstrapWorker extends AbstractLogProvider {
      * Creates the DynamoDBBootstrapWorker, calculates the number of segments a
      * table should have, and creates a thread pool to prepare to scan using an
      * eventually consistent scan.
-     * 
+     *
      * @throws Exception
      */
     public DynamoDBBootstrapWorker(AmazonDynamoDBClient client,
-            double rateLimit, String tableName, int numThreads)
+                                   double rateLimit, String tableName, int numThreads, int numSegments)
             throws NullReadCapacityException {
         this.client = client;
         this.rateLimit = rateLimit;
@@ -77,7 +79,7 @@ public class DynamoDBBootstrapWorker extends AbstractLogProvider {
         this.totalSections = 1;
         this.consistentScan = false;
 
-        this.numSegments = getNumberOfSegments(description);
+        this.numSegments = numSegments;
         int numProcessors = Runtime.getRuntime().availableProcessors() * 4;
         if (numProcessors > numThreads) {
             numThreads = numProcessors;
@@ -119,11 +121,10 @@ public class DynamoDBBootstrapWorker extends AbstractLogProvider {
      * table, which should need many more segments in order to scan the table
      * fast enough in parallel so that one worker does not finish long before
      * other workers.
-     * 
-     * @throws NullReadCapacityException
-     *             if the table returns a null readCapacity units.
+     *
+     * @throws NullReadCapacityException if the table returns a null readCapacity units.
      */
-    public static int getNumberOfSegments(TableDescription description)
+    public static int getNumberOfSegments(TableDescription description, double estimatedReadCU)
             throws NullReadCapacityException {
         ProvisionedThroughputDescription provisionedThroughput = description
                 .getProvisionedThroughput();
@@ -137,6 +138,10 @@ public class DynamoDBBootstrapWorker extends AbstractLogProvider {
         if (readCapacity == null) {
             throw new NullReadCapacityException(
                     "Cannot scan with a null readCapacity provisioned throughput");
+        }
+        if (description.getBillingModeSummary().getBillingMode().equals(BillingMode.PAY_PER_REQUEST.toString())) {
+            readCapacity = Math.round(estimatedReadCU);
+            writeCapacity = readCapacity * 2;
         }
         double throughput = (readCapacity + 3 * writeCapacity) / 3000.0;
         return (int) (10 * Math.max(Math.ceil(throughput),

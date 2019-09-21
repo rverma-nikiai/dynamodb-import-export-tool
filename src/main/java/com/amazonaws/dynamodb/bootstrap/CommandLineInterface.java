@@ -5,24 +5,26 @@
  */
 package com.amazonaws.dynamodb.bootstrap;
 
+import com.amazonaws.ClientConfiguration;
+import com.amazonaws.auth.AWSStaticCredentialsProvider;
+import com.amazonaws.client.builder.AwsClientBuilder;
+import com.amazonaws.dynamodb.bootstrap.constants.BootstrapConstants;
+import com.amazonaws.dynamodb.bootstrap.exception.NullReadCapacityException;
+import com.amazonaws.dynamodb.bootstrap.exception.SectionOutOfRangeException;
+import com.amazonaws.services.dynamodbv2.AmazonDynamoDB;
+import com.amazonaws.services.dynamodbv2.AmazonDynamoDBClient;
+import com.amazonaws.services.dynamodbv2.model.BillingMode;
+import com.amazonaws.services.dynamodbv2.model.TableDescription;
+import com.beust.jcommander.JCommander;
+import com.beust.jcommander.ParameterException;
+import org.apache.log4j.LogManager;
+import org.apache.log4j.Logger;
+
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
-
-import org.apache.log4j.LogManager;
-import org.apache.log4j.Logger;
-
-import com.amazonaws.ClientConfiguration;
-import com.amazonaws.auth.DefaultAWSCredentialsProviderChain;
-import com.amazonaws.dynamodb.bootstrap.constants.BootstrapConstants;
-import com.amazonaws.dynamodb.bootstrap.exception.NullReadCapacityException;
-import com.amazonaws.dynamodb.bootstrap.exception.SectionOutOfRangeException;
-import com.amazonaws.services.dynamodbv2.AmazonDynamoDBClient;
-import com.amazonaws.services.dynamodbv2.model.TableDescription;
-import com.beust.jcommander.JCommander;
-import com.beust.jcommander.ParameterException;
 
 /**
  * The interface that parses the arguments, and begins to transfer data from one
@@ -39,7 +41,7 @@ public class CommandLineInterface {
     /**
      * Main class to begin transferring data from one DynamoDB table to another
      * DynamoDB table.
-     * 
+     *
      * @param args
      */
     public static void main(String[] args) {
@@ -73,30 +75,39 @@ public class CommandLineInterface {
         final ClientConfiguration sourceConfig = new ClientConfiguration().withMaxConnections(BootstrapConstants.MAX_CONN_SIZE);
         final ClientConfiguration destinationConfig = new ClientConfiguration().withMaxConnections(BootstrapConstants.MAX_CONN_SIZE);
 
-        final AmazonDynamoDBClient sourceClient = new AmazonDynamoDBClient(
-                new DefaultAWSCredentialsProviderChain(), sourceConfig);
-        final AmazonDynamoDBClient destinationClient = new AmazonDynamoDBClient(
-                new DefaultAWSCredentialsProviderChain(), destinationConfig);
-        sourceClient.setEndpoint(sourceEndpoint);
-        destinationClient.setEndpoint(destinationEndpoint);
+        final AmazonDynamoDB sourceClient = AmazonDynamoDBClient.builder()
+                .withEndpointConfiguration(new AwsClientBuilder.EndpointConfiguration(sourceEndpoint, "ap-southeast-1"))
+                .withCredentials(new AWSStaticCredentialsProvider(params.getSourceCredentials()))
+                .withClientConfiguration(sourceConfig).build();
+        final AmazonDynamoDB destinationClient = AmazonDynamoDBClient.builder()
+                .withEndpointConfiguration(new AwsClientBuilder.EndpointConfiguration(destinationEndpoint, "ap-south-1"))
+                .withCredentials(new AWSStaticCredentialsProvider(params.getDestinationCredentials()))
+                .withClientConfiguration(destinationConfig)
+                .build();
 
         TableDescription readTableDescription = sourceClient.describeTable(
                 sourceTable).getTable();
         TableDescription writeTableDescription = destinationClient
                 .describeTable(destinationTable).getTable();
+
+        final double readThroughput = calculateThroughput(readTableDescription,
+                readThroughputRatio, true);
+        double writeThroughput;
+        if (readTableDescription.getBillingModeSummary().getBillingMode().equals(BillingMode.PAY_PER_REQUEST.toString())) {
+            writeThroughput = 2 * readThroughput;
+        } else {
+            writeThroughput = calculateThroughput(
+                    writeTableDescription, writeThroughputRatio, false);
+        }
+
         int numSegments = 10;
         try {
             numSegments = DynamoDBBootstrapWorker
-                    .getNumberOfSegments(readTableDescription);
+                    .getNumberOfSegments(readTableDescription,readThroughput);
         } catch (NullReadCapacityException e) {
             LOGGER.warn("Number of segments not specified - defaulting to "
                     + numSegments, e);
         }
-
-        final double readThroughput = calculateThroughput(readTableDescription,
-                readThroughputRatio, true);
-        final double writeThroughput = calculateThroughput(
-                writeTableDescription, writeThroughputRatio, false);
 
         try {
             ExecutorService sourceExec = getSourceThreadPool(numSegments);
@@ -124,11 +135,22 @@ public class CommandLineInterface {
     /**
      * returns the provisioned throughput based on the input ratio and the
      * specified DynamoDB table provisioned throughput.
+     * table copy completion time ~= # of items in source table * ceiling(average item size / 1KB) / WCU of destination table.
      */
     private static double calculateThroughput(
             TableDescription tableDescription, double throughputRatio,
             boolean read) {
         if (read) {
+            if (tableDescription.getBillingModeSummary().getBillingMode().equals(BillingMode.PAY_PER_REQUEST.toString())) {
+                double avgRecordSize = Math.ceil(tableDescription.getTableSizeBytes() / (1024.0 * tableDescription.getItemCount()));
+                int readCu = 20;
+                double timeToCompletionInHours = (tableDescription.getItemCount() * avgRecordSize) / (readCu * 3600);
+                while (timeToCompletionInHours > 20) {
+                    readCu *= 2;
+                    timeToCompletionInHours /= 2;
+                }
+                return readCu;
+            }
             return tableDescription.getProvisionedThroughput()
                     .getReadCapacityUnits() * throughputRatio;
         }

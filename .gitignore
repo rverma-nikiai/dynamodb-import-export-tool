@@ -1,0 +1,46 @@
+target/
+!.mvn/wrapper/maven-wrapper.jar
+
+### STS ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+
+### IntelliJ IDEA ###
+.idea
+*.iws
+*.iml
+*.ipr
+
+### NetBeans ###
+nbproject/private/
+build/
+nbbuild/
+dist/
+nbdist/
+.nb-gradle/
+.gradle
+**/out
+plugin-host/src/main/generated
+*.db
+docker.env
+**/.project
+**/.classpath
+**/.settings
+**/bin
+**/.vscode
+
+classes/
+**/test.java
+.DS_Store
+logs/
+queued/
+.DS_Store
+build-harness/
+.build-harness
+data/
+.java-version
+target
