@@ -106,7 +106,7 @@ public class CommandLineArgs {
 
     public static final String SOURCE_CREDENTIALS = "--sourceCredentials";
     @Parameter(names = SOURCE_CREDENTIALS, description = "Use this flag to provide different source credentials")
-    private String sourceCredentials = "AKIA46T4EVTL4TIS22UG/juOFeNXwT3Qcx7aQpOgeiU+mZWDzjgbGRR+rk72j";
+    private String sourceCredentials = "ACC/SEC";
 
     public BasicAWSCredentials getSourceCredentials() {
         String[] temp  = sourceCredentials.split("/");
@@ -115,7 +115,7 @@ public class CommandLineArgs {
 
     public static final String DESTINATION_CREDENTIALS = "--destinationCredentials";
     @Parameter(names = DESTINATION_CREDENTIALS, description = "Use this flag to provide different destination credentials")
-    private String destinationCredentials = "AKIASJVC7LXJUSWZPS5X/58AoUzEM2NEeOZZ6xLnGQWyo8DEyqzcinFMq+jzh";
+    private String destinationCredentials = "ACC/SEC";
 
     public BasicAWSCredentials getDestinationCredentials() {
         String[] temp  = destinationCredentials.split("/");
